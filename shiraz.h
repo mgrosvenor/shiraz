@@ -300,16 +300,18 @@ static inline srz_errno_t _srz_build_short_opts(srz_opt_t opts[], char* short_op
     return SRZ_ERR_NONE;
 }
 
-//static inline srz_errno_t _srz_build_long_opts(srz_opt_t opts[], struct option* long_opts)
-//{
-//    return SRZ_ERR_NONE;
-//}
+static inline srz_errno_t _srz_build_long_opts(srz_opt_t opts[], struct option* long_opts)
+{
+    (void)opts;
+    (void)long_opts;
+    return SRZ_ERR_NONE;
+}
 
-srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handler_t opt_hanlder) {
+srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handler_t opt_handler) {
 
     (void)argc;
     (void)argv;
-    (void)opt_hanlder;
+    (void)opt_handler;
     srz_errno_t err = SRZ_ERR_NONE;
     
     char short_opts_str[SRZ_SOPTS_MAX];
@@ -320,13 +322,13 @@ srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handl
         return err;
     }
 
-//    struct option long_opts[SRZ_LOPTS_MAX];
-//    memset(&long_opts, 0, sizeof(struct option) * SRZ_LOPTS_MAX);
-//    err = _srz_build_long_opts(opts, long_opts);
-//    if(err){
-//        SRZ_FAIL("Could not build long options structure\n");
-//        return err;
-//    }
+    struct option long_opts[SRZ_LOPTS_MAX];
+    memset(&long_opts, 0, sizeof(struct option) * SRZ_LOPTS_MAX);
+    err = _srz_build_long_opts(opts, long_opts);
+    if(err){
+        SRZ_FAIL("Could not build long options structure\n");
+        return err;
+    }
 
     
     return err;

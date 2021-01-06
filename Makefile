@@ -10,7 +10,7 @@ all: debug
 release: CFLAGS += -O3 -DNDEBUG
 release: demo
 
-debug: CFLAGS += -Werror -g -pedantic -std=c99 -Wextra -fsanitize=address
+debug: CFLAGS += -Werror -g -pedantic -std=c99 -Wextra -fsanitize=address -fno-omit-frame-pointer
 debug: test demo
 
 test: test.c shiraz.h
