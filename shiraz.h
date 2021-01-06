@@ -29,13 +29,13 @@
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO SRZENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWSRZER
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, SRZEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef SRZH_
@@ -132,9 +132,9 @@ typedef struct srz_error_en {
 } srz_err_t;
 
 
-typedef int (* srz_opt_hanlder_t)(int optnum, char* optval);
+typedef int (* srz_opt_handler_t)(int optnum, char* optval);
 
-srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_hanlder_t opt_hanlder);
+srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handler_t opt_handler);
 
 
 /*
@@ -177,7 +177,7 @@ typedef enum {
 #endif
 
 
-#if SRZ_DEBUG
+#ifdef SRZ_DEBUG
     #define SRZ_FAIL( /*format, args*/...)  srz_err_helper(__VA_ARGS__, "")
     #define srz_err_helper(format, ...) _srz_msg(SRZ_MSG_ERR, __LINE__, __FILE__, __FUNCTION__, format, __VA_ARGS__ )
     #define SRZ_WARN( /*format, args*/...)  srz_warn_helper(__VA_ARGS__, "")
@@ -305,7 +305,7 @@ static inline srz_errno_t _srz_build_short_opts(srz_opt_t opts[], char* short_op
 //    return SRZ_ERR_NONE;
 //}
 
-srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_hanlder_t opt_hanlder) {
+srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handler_t opt_hanlder) {
 
     (void)argc;
     (void)argv;

@@ -1,4 +1,6 @@
 #include <stdio.h>
+
+#define SRZ_DEBUG
 #include "shiraz.h"
 
 typedef enum {
@@ -13,7 +15,7 @@ typedef enum {
 srz_opt_t opts[] = {
         SRZ_OPT( LOGGING,    ARG_NON, "l", "logging",   "set the log path" ),
         SRZ_OPT( LOG_LEVEL,  ARG_OPT, "",  "log-level", "set the log level [error, warning, info, debug]" ),
-        SRZ_OPT( COLOR,      ARG_REQ, "o", "colour",     "set the log colour "),
+        SRZ_OPT( COLOR,      ARG_REQ, "", "colour",     "set the log colour "),
         SRZ_OPT( INTERFACES, ARG_REQ, "int", "",        "interface to listen on, may be exanic or system interface" ),
         SRZ_OPT( OUTPUTS,    ARG_REQ, "o", NULL,               "output file(s) to write to" ),
         SRZ_OPT( OOMPAS,     ARG_NON, "M", NULL,               "Number of OOMPAS" ),
