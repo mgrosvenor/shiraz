@@ -1,4 +1,4 @@
-CFLAGS= -Wall -std=c99
+CFLAGS= -Wall 
 LIBS=
 OUTDIR=bin
 
@@ -10,7 +10,7 @@ all: debug
 release: CFLAGS += -O3 -DNDEBUG
 release: demo
 
-debug: CFLAGS += -Werror -g -pedantic
+debug: CFLAGS += -Werror -g -pedantic -std=c99 -Wextra -fsanitize=address
 debug: test demo
 
 test: test.c shiraz.h

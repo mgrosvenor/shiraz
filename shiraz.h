@@ -172,15 +172,21 @@ typedef enum {
     SRZ_MSG_ERR,
 } srz_dbg_e;
 
-#define SRZ_FAIL( /*format, args*/...)  srz_err_helper(__VA_ARGS__, "")
-#define srz_err_helper(format, ...) _srz_msg(SRZ_MSG_ERR, __LINE__, __FILE__, __FUNCTION__, format, __VA_ARGS__ )
-#define SRZ_WARN( /*format, args*/...)  srz_warn_helper(__VA_ARGS__, "")
-#define srz_warn_helper(format, ...) _srz_msg(SRZ_MSG_WARN,__LINE__, __FILE__, __FUNCTION__, format, __VA_ARGS__ )
+#ifndef __FUNCTION__
+#define __FUNCTION__ __func__
+#endif
+
 
 #if SRZ_DEBUG
+    #define SRZ_FAIL( /*format, args*/...)  srz_err_helper(__VA_ARGS__, "")
+    #define srz_err_helper(format, ...) _srz_msg(SRZ_MSG_ERR, __LINE__, __FILE__, __FUNCTION__, format, __VA_ARGS__ )
+    #define SRZ_WARN( /*format, args*/...)  srz_warn_helper(__VA_ARGS__, "")
+    #define srz_warn_helper(format, ...) _srz_msg(SRZ_MSG_WARN,__LINE__, __FILE__, __FUNCTION__, format, __VA_ARGS__ )
     #define SRZ_DBG( /*format, args*/...)  srz_debug_helper(__VA_ARGS__, "")
     #define srz_debug_helper(format, ...) _srz_msg(SRZ_MSG_DBG,__LINE__, __FILE__, __FUNCTION__, format, __VA_ARGS__ )
 #else
+    #define SRZ_FAIL( /*format, args*/...)
+    #define SRZ_WARN( /*format, args*/...)
     #define SRZ_DBG( /*format, args*/...)
 #endif
 
@@ -194,8 +200,8 @@ static inline void _srz_msg(srz_dbg_e mode, int ln, const char* fn, const char* 
         case SRZ_MSG_DBG:  mode_str = "Debug  :"; break;
         case SRZ_MSG_WARN: mode_str = "Warning:"; break;
     }
-    dprintf(STDERR_FILENO, "[%s %s:%i:%s()]  ", mode_str, basename((char*)fn), ln, fu);
-    vdprintf(STDERR_FILENO, msg, args);
+    fprintf(stderr, "[%s %s:%i:%s()]  ", mode_str, basename((char*)fn), ln, fu);
+    vfprintf(stderr, msg, args);
 
     if(mode == SRZ_MSG_ERR && SRZ_HARD_EXIT){
         exit(0xDEAD);
@@ -294,13 +300,16 @@ static inline srz_errno_t _srz_build_short_opts(srz_opt_t opts[], char* short_op
     return SRZ_ERR_NONE;
 }
 
-static inline srz_errno_t _srz_build_long_opts(srz_opt_t opts[], struct option* long_opts)
-{
-    return SRZ_ERR_NONE;
-}
+//static inline srz_errno_t _srz_build_long_opts(srz_opt_t opts[], struct option* long_opts)
+//{
+//    return SRZ_ERR_NONE;
+//}
 
 srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_hanlder_t opt_hanlder) {
 
+    (void)argc;
+    (void)argv;
+    (void)opt_hanlder;
     srz_errno_t err = SRZ_ERR_NONE;
     
     char short_opts_str[SRZ_SOPTS_MAX];
@@ -311,13 +320,13 @@ srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_hanld
         return err;
     }
 
-    struct option long_opts[SRZ_LOPTS_MAX];
-    memset(&long_opts, 0, sizeof(struct option) * SRZ_LOPTS_MAX);
-    err = _srz_build_long_opts(opts, long_opts);
-    if(err){
-        SRZ_FAIL("Could not build long options structure\n");
-        return err;
-    }
+//    struct option long_opts[SRZ_LOPTS_MAX];
+//    memset(&long_opts, 0, sizeof(struct option) * SRZ_LOPTS_MAX);
+//    err = _srz_build_long_opts(opts, long_opts);
+//    if(err){
+//        SRZ_FAIL("Could not build long options structure\n");
+//        return err;
+//    }
 
     
     return err;
