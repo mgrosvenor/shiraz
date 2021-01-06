@@ -13,10 +13,10 @@ typedef enum {
 } opt_t;
 
 srz_opt_t opts[] = {
-        SRZ_OPT( LOGGING,     "l", "logging",   "set the log path" ),
-        SRZ_OPT( LOG_LEVEL,   "",  "log-level", "set the log level [error, warning, info, debug]" ),
+        SRZ_REQ(LOGGING, "l", "logging", "set the log path" ),
+        SRZ_REQ(LOG_LEVEL, "", "log-level", "set the log level [error, warning, info, debug]" ),
         SRZ_FLG( COLOR,       "",  "colour",    "set the log colour "),
-        SRZ_FLG( INTERFACES,  "i", "",          "interface to listen on, may be exanic or system interface" ),
+        SRZ_OPT( INTERFACES,  "", "interfaces",          "interface to listen on, may be exanic or system interface" ),
         SRZ_FLG( OUTPUTS,     "o", NULL,        "output file(s) to write to" ),
         SRZ_POS( OOMPAS,      "M", NULL,        "Number of OOMPAS" ),
 
@@ -32,8 +32,8 @@ int handle_opt(const srz_opt_t* const opt, const char* const optval, void* user)
         case LOG_LEVEL:     printf("Log-level:");   break;
         case INTERFACES:    printf("Interfaces:");  break;
         case OUTPUTS:       printf("Outputs:");     break;
-        case COLOR:         printf("Color:");        break;
-        case OOMPAS:        printf("OOMPAS:");       break;
+        case COLOR:         printf("Color:");       break;
+        case OOMPAS:        printf("OOMPAS:");      break;
     }
 
     if(optval) {

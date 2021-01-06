@@ -107,8 +107,8 @@ typedef struct srz_opt {
 } srz_opt_t;
 
 #define SRZ_FIN { .fin = true }
-#define SRZ_OPT(IDENT, SHORT, LONG, DESCR) \
-{ \
+#define SRZ_REQ(IDENT, SHORT, LONG, DESCR) \
+{                                          \
     .ident    = IDENT,                     \
     .atype    = ARG_REQ,                   \
     .srt      = SHORT,                     \
@@ -117,7 +117,7 @@ typedef struct srz_opt {
     .fin      = false,                     \
 }
 #define SRZ_FLG(IDENT, SHORT, LONG, DESCR) \
-{ \
+{                                          \
     .ident    = IDENT,                     \
     .atype    = ARG_NON,                   \
     .srt      = SHORT,                     \
@@ -126,7 +126,7 @@ typedef struct srz_opt {
     .fin      = false,                     \
 }
 #define SRZ_POS(IDENT, SHORT, LONG, DESCR) \
-{ \
+{                                          \
     .ident    = IDENT,                     \
     .atype    = ARG_POS,                   \
     .srt      = SHORT,                     \
@@ -134,6 +134,24 @@ typedef struct srz_opt {
     .descr    = DESCR,                     \
     .fin      = false,                     \
 }
+/*
+ * ******** WARNING!!!!
+ * Seriosuly! Don't use this:
+ * - Only long options are supported
+ * - Only "=" assignment is support
+ * - It is likely to cause confusion to users
+ * */
+#define SRZ_OPT(IDENT, SHORT, LONG, DESCR) \
+{                                          \
+    .ident    = IDENT,                     \
+    .atype    = ARG_OPT,                   \
+    .srt      = SHORT,                     \
+    .lng      = LONG,                      \
+    .descr    = DESCR,                     \
+    .fin      = false,                     \
+}
+
+
 
 //Remember to update the string translation table srz_error_en[]
 typedef enum {
@@ -148,6 +166,7 @@ typedef enum {
     SRZ_ERR_INTERNAL,
     SRZ_ERR_MULTI_POSITIONAL,
     SRZ_ERR_POSTIONAL_FOUND,
+    SRZ_ERR_NO_SHORT_LONG,
 } srz_errno_t;
 
 typedef struct srz_error_en {
@@ -179,6 +198,7 @@ static struct srz_error_en srz_error_en[] = {
     {SRZ_ERR_INTERNAL,            "Internal consistency error. Option found in long_opts structure, but no in SRZ options"},
     {SRZ_ERR_MULTI_POSITIONAL,    "Multiple positional options found (ARG_POS), only 1 permitted. Remove additional options"},
     {SRZ_ERR_POSTIONAL_FOUND,     "Positional arguments found, but there is no positional option. Add ARG_POS, or remove positional arguments"},
+    {SRZ_ERR_NO_SHORT_LONG,       "Neither a short or long option string were supplied. Both cannot be blank. Either a short or long option string is required"},
     {0,                           0 }
 };
 
@@ -314,6 +334,17 @@ static inline srz_opt_t* _srz_get_positional(srz_opt_t opts[]) {
     return NULL;
 }
 
+static inline int _srz_no_short_long(srz_opt_t opts[]) {
+    for(srz_opt_t* opt = opts; !opt->fin; opt++){
+        if(opt->atype != ARG_POS){
+            if(isempty(opt->srt) && isempty(opt->lng)){
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}
 
 
 static inline srz_errno_t _srz_build_short_opts(srz_opt_t opts[], char* short_opts_str) {
@@ -439,7 +470,6 @@ srz_errno_t _srz_do_getop(
 
         switch(opt){
             case 0:
-                if(optarg) printf("%s\n", optarg);
                 srz_opt = _srz_find_long(opts, long_opts[optindx].name, NULL);
                 if(!srz_opt){
                     SRZ_FAIL("%s. (`%s`)\n", srz_err2str_en(SRZ_ERR_INTERNAL), long_opts[optindx].name);
@@ -504,8 +534,13 @@ srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handl
 
 
     srz_errno_t err = SRZ_ERR_NONE;
+    if(_srz_no_short_long(opts)){
+        SRZ_FAIL("%s.\n", srz_err2str_en(SRZ_ERR_NO_SHORT_LONG));
+        return SRZ_ERR_NO_SHORT_LONG;
+    }
+
     if(_srz_positional_count(opts) > 1){
-        SRZ_FAIL("%s\n", srz_err2str_en(SRZ_ERR_MULTI_POSITIONAL));
+        SRZ_FAIL("%s.\n", srz_err2str_en(SRZ_ERR_MULTI_POSITIONAL));
         return SRZ_ERR_MULTI_POSITIONAL;
     }
     
