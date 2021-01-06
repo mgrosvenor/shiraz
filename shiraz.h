@@ -97,13 +97,13 @@ typedef enum {
 } srz_atype_t;
 
 typedef struct srz_opt {
-    int64_t ident;
+    int ident;
     srz_atype_t atype;
     char* srt;
     char* lng;
     char* descr;
     bool fin;
-    int64_t count;
+    int flag;
 } srz_opt_t;
 
 #define SRZ_FIN { .fin = true }
@@ -115,15 +115,20 @@ typedef struct srz_opt {
     .lng      = LONG,                      \
     .descr    = DESCR,                     \
     .fin      = false,                     \
-    .count    = 0,                         \
+    .flag     = 0,                         \
 }
 
 //Remember to update the string translation table srz_error_en[]
 typedef enum {
     SRZ_ERR_NONE = 0,
     SRZ_ERR_SOPTS_MAX_TOO_SMALL,
-    SRZ_ERR_SHORT_OPT_DUP,
-    SRZ_ERR_SHORT_OPT_OPTIONAL,
+    SRZ_ERR_SOPT_DUP,
+    SRZ_ERR_SOPT_OPTIONAL,
+    SRZ_ERR_SOPT_TOO_LONG,
+    SRZ_ERR_LOPT_DUP,
+    SRZ_ERR_LOPTS_MAX_TOO_SMALL,
+    SRZ_ERR_UNKNOWN_ARG_TYPE,
+    SRZ_ERR_INTERNAL,
 } srz_errno_t;
 
 typedef struct srz_error_en {
@@ -132,9 +137,9 @@ typedef struct srz_error_en {
 } srz_err_t;
 
 
-typedef int (* srz_opt_handler_t)(int optnum, char* optval);
+typedef int (* srz_opt_handler_t)(const srz_opt_t* const opt, const char* const optval, void* user);
 
-srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handler_t opt_handler);
+srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handler_t opt_handler, void* user);
 
 
 /*
@@ -144,11 +149,16 @@ srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handl
 #ifndef SRZ_HONLY
 
 static struct srz_error_en srz_error_en[] = {
-    { SRZ_ERR_NONE,                 "No error"},
-    { SRZ_ERR_SOPTS_MAX_TOO_SMALL,  "The short options string space is too small, try enlarging SRZ_SOPTS_MAX and recompiling" },
-    { SRZ_ERR_SHORT_OPT_DUP,        "Duplicate short options entry. Remove or rename this short option name" },
-    { SRZ_ERR_SHORT_OPT_OPTIONAL,   "A short option cannot have an optional argument. Remove short option or use ARG_NON or ARG_REQ argument type"},
-    { 0, 0 }
+    {SRZ_ERR_NONE,                "No error"},
+    {SRZ_ERR_SOPTS_MAX_TOO_SMALL, "The short options string space is too small, try enlarging SRZ_SOPTS_MAX and recompiling" },
+    {SRZ_ERR_SOPT_DUP,            "Duplicate short options entry. Remove or rename this short option name" },
+    {SRZ_ERR_SOPT_OPTIONAL,       "A short option cannot have an optional argument. Remove short option or use ARG_NON or ARG_REQ argument type"},
+    {SRZ_ERR_SOPT_TOO_LONG,       "Short options should be a single character long only. Remove excess characters, or use a long option instead" },
+    {SRZ_ERR_LOPT_DUP,            "Duplicate long options entry. Remove or rename this short option name" },
+    {SRZ_ERR_LOPTS_MAX_TOO_SMALL, "The long options memory space is too small, try enlarging SRZ_LOPTS_MAX and recompiling" },
+    {SRZ_ERR_UNKNOWN_ARG_TYPE,    "The option argument type is unkown. Valid values are ARG_NON, ARG_OPT, ARG_REQ"},
+    {SRZ_ERR_INTERNAL        ,    "Internal consistency error. Option found in long_opts structure, but no in SRZ options"},
+    {0,                           0 }
 };
 
 const char* srz_err2str_en(srz_errno_t err_no)
@@ -199,6 +209,8 @@ static inline void _srz_msg(srz_dbg_e mode, int ln, const char* fn, const char* 
         case SRZ_MSG_ERR:  mode_str = "Error  :"; break;
         case SRZ_MSG_DBG:  mode_str = "Debug  :"; break;
         case SRZ_MSG_WARN: mode_str = "Warning:"; break;
+        default:
+            return;
     }
     fprintf(stderr, "[%s %s:%i:%s()]  ", mode_str, basename((char*)fn), ln, fu);
     vfprintf(stderr, msg, args);
@@ -240,8 +252,11 @@ static inline srz_opt_t* _srz_find_short(srz_opt_t opts[], char s) {
     return NULL;
 }
 
-static inline srz_opt_t* _srz_find_long(srz_opt_t opts[], char* l) {
+static inline srz_opt_t* _srz_find_long(srz_opt_t opts[], const char* l, int* ignore) {
     for(srz_opt_t* opt = opts; !opt->fin; opt++){
+        if(ignore && opt->ident == *ignore){
+            continue;
+        }
         const char* lng = opt->lng;
         if(isempty(lng)){
             continue;
@@ -267,14 +282,15 @@ static inline srz_errno_t _srz_build_short_opts(srz_opt_t opts[], char* short_op
         }
 
         if(strlen(srt) > 1){
-            continue; //This is really a long option in disguise
+            SRZ_FAIL("%s (`%s`)\n", srz_err2str_en(SRZ_ERR_SOPT_TOO_LONG), srt);
+            return SRZ_ERR_SOPT_TOO_LONG;
         }
 
         const char srt_opt = srt[0];
 
         if(strchr(short_opts_str,srt_opt)){
-            SRZ_FAIL("%s `%c`\n", srz_err2str_en(SRZ_ERR_SHORT_OPT_DUP), srt_opt);
-            return SRZ_ERR_SHORT_OPT_DUP;
+            SRZ_FAIL("%s `%c`\n", srz_err2str_en(SRZ_ERR_SOPT_DUP), srt_opt);
+            return SRZ_ERR_SOPT_DUP;
         }
 
         if(SRZ_SOPTS_MAX - i < 3){
@@ -283,8 +299,8 @@ static inline srz_errno_t _srz_build_short_opts(srz_opt_t opts[], char* short_op
         }
 
         if(opt->atype == ARG_OPT){
-            SRZ_FAIL("%s '%c'\n", srz_err2str_en(SRZ_ERR_SHORT_OPT_OPTIONAL), srt_opt);
-            return SRZ_ERR_SHORT_OPT_OPTIONAL;
+            SRZ_FAIL("%s '%c'\n", srz_err2str_en(SRZ_ERR_SOPT_OPTIONAL), srt_opt);
+            return SRZ_ERR_SOPT_OPTIONAL;
         }
 
         short_opts_str[++i] = srt_opt;
@@ -295,23 +311,128 @@ static inline srz_errno_t _srz_build_short_opts(srz_opt_t opts[], char* short_op
 
     }
 
-    printf("%s\n", short_opts_str);
+    SRZ_DBG("%s\n", short_opts_str);
 
     return SRZ_ERR_NONE;
 }
 
 static inline srz_errno_t _srz_build_long_opts(srz_opt_t opts[], struct option* long_opts)
 {
-    (void)opts;
-    (void)long_opts;
+    int i = 0;
+
+    for(srz_opt_t* opt = opts; !opt->fin; opt++, i++){
+        const char* lng = opt->lng;
+
+        if(isempty(lng)){
+            continue;
+        }
+
+        if(_srz_find_long(opts, lng, &opt->ident)){
+            SRZ_FAIL("%s `%s`\n", srz_err2str_en(SRZ_ERR_LOPT_DUP), lng);
+            return SRZ_ERR_LOPT_DUP;
+        }
+
+        if(SRZ_LOPTS_MAX - i < 2){
+            SRZ_FAIL("%s. Current size = %i\n", srz_err2str_en(SRZ_ERR_LOPTS_MAX_TOO_SMALL), SRZ_LOPTS_MAX);
+            return SRZ_ERR_LOPTS_MAX_TOO_SMALL;
+        }
+
+        long_opts[i].name = opt->lng;
+        long_opts[i].val  = 0;
+        switch(opt->atype){
+            case ARG_NON:   long_opts[i].has_arg = no_argument;         break;
+            case ARG_OPT:   long_opts[i].has_arg = optional_argument;   break;
+            case ARG_REQ:   long_opts[i].has_arg = required_argument;   break;
+            default:
+                SRZ_FAIL("%s. Given value is %i\n", srz_err2str_en(SRZ_ERR_UNKNOWN_ARG_TYPE), opt->atype);
+                return SRZ_ERR_UNKNOWN_ARG_TYPE;
+        }
+
+    }
+
     return SRZ_ERR_NONE;
 }
 
-srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handler_t opt_handler) {
+void _srz_debug_dump_long(struct option* opts)
+{
+#ifdef SRZ_DEBUG
+    int i = 0;
+    for(struct option* opt = opts; opt->name; opt++, i++){
+        printf("%i - name=%s, has_arg=%i, flag=%p, val=%i\n",
+               i,
+               opt->name,
+               opt->has_arg,
+               (void*)opt->flag,
+               opt->val);
+    }
+#endif
+}
 
-    (void)argc;
-    (void)argv;
-    (void)opt_handler;
+srz_errno_t _srz_do_getop(
+        int argc,
+        char** argv,
+        srz_opt_t opts[],
+        srz_opt_handler_t opt_handler,
+        char* short_opts_str,
+        struct option* long_opts,
+        void* user
+    )
+{
+    srz_errno_t err = SRZ_ERR_NONE;
+
+    int optindx = -1;
+    int opt = -1;
+    while(1){
+        opt = getopt_long_only(argc, argv, short_opts_str, long_opts, &optindx);
+        if(opt == -1){
+            break;
+        }
+        srz_opt_t* srz_opt = NULL;
+
+        switch(opt){
+            case 0:{
+                srz_opt = _srz_find_long(opts, long_opts[optindx].name, NULL);
+                if(!srz_opt){
+                    SRZ_FAIL("%s. (`%s`)\n", srz_err2str_en(SRZ_ERR_INTERNAL), long_opts[optindx].name);
+                    return SRZ_ERR_INTERNAL;
+                }
+
+                err = opt_handler(srz_opt, optarg, user);
+                if(err){
+                    return err;
+                }
+
+                continue;
+            }
+            case '?':
+                printf("Unknown option `%c` %s %i %s`\n", optopt, optarg, optind, argv[optind -1]);
+                continue;
+
+            case ':':
+                printf("Missing option for `%c` %s %i %s\n", optopt, optarg, optind, argv[optind -1]);
+                continue;
+        }
+
+        srz_opt = _srz_find_short(opts,opt);
+        if(!srz_opt){
+            SRZ_FAIL("%s. (`%c`)\n", srz_err2str_en(SRZ_ERR_INTERNAL), opt);
+            return SRZ_ERR_INTERNAL;
+        }
+
+        err = opt_handler(srz_opt, optarg, user);
+        if(err){
+            return err;
+        }
+
+    }
+
+
+    return err;
+}
+
+srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handler_t opt_handler, void* user) {
+
+
     srz_errno_t err = SRZ_ERR_NONE;
     
     char short_opts_str[SRZ_SOPTS_MAX];
@@ -330,6 +451,10 @@ srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handl
         return err;
     }
 
+    _srz_debug_dump_long(long_opts);
+
+
+    _srz_do_getop(argc,argv,opts,opt_handler,short_opts_str,long_opts, user);
     
     return err;
 }
