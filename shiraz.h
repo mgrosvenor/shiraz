@@ -75,6 +75,8 @@
 
 #define SRZ_SOPTS_MAX 256 //Maximum number of charters to use for short options
 #define SRZ_LOPTS_MAX 128 //Maximum number of long options
+#define SRZ_OPTS_MAX  SRZ_LOPTS_MAX //Maximum number of options in total. Should not be less than SRZ_LOPTS_MAX
+
 
 /*
  * Forward declarations of the the SRZ interface functions
@@ -88,69 +90,116 @@
 #define ifp(p,e)
 #endif
 
+typedef enum {
+    SRZ_OPT_BOOL,
+    SRZ_OPT_INT,
+    SRZ_OPT_UINT,
+    SRZ_OPT_FLOAT,
+    SRZ_OPT_STR,
+    SRZ_OPT_ENUM,
+} srz_otype_t;
 
+typedef struct srz_enum {
+    int val;
+    char* str;
+} srz_enum_t;
+
+typedef struct srz_val {
+    srz_otype_t type;
+    union {
+        bool b;
+        int64_t i;
+        uint64_t u;
+        double f;
+        char* s;
+    } init;
+
+    union {
+        bool* b;
+        int64_t* i;
+        uint64_t* u;
+        double* f;
+        char** s;
+
+        //For vector types
+        bool** B;
+        int64_t** I;
+        uint64_t** U;
+        double** F;
+        char*** S;
+    } dest;
+
+    srz_enum_t* enm;
+} srz_val_t;
 
 typedef enum {
-    ARG_NON, //Argument is not expected
-    ARG_OPT, //Argument is optional
-    ARG_REQ, //Argument is required
-    ARG_POS, //Argument is positional
+    SRZ_ARG_NON, //Argument is not expected (flag)
+    SRZ_ARG_OPT, //Argument is optional
+    SRZ_ARG_REQ, //Argument is required
+    SRZ_ARG_POS, //Argument is positional
 } srz_atype_t;
 
-typedef struct srz_opt {
+typedef struct srz_option {
     int ident;
     srz_atype_t atype;
     char* srt;
     char* lng;
-    char* descr;
+    char* desc;
     bool fin;
+    srz_val_t val;
 } srz_opt_t;
 
 #define SRZ_FIN { .fin = true }
 #define SRZ_REQ(IDENT, SHORT, LONG, DESCR) \
 {                                          \
     .ident    = IDENT,                     \
-    .atype    = ARG_REQ,                   \
+    .atype    = SRZ_ARG_REQ,               \
     .srt      = SHORT,                     \
     .lng      = LONG,                      \
-    .descr    = DESCR,                     \
+    .desc     = DESCR,                     \
     .fin      = false,                     \
+    .val      = {0},                       \
 }
 #define SRZ_FLG(IDENT, SHORT, LONG, DESCR) \
 {                                          \
     .ident    = IDENT,                     \
-    .atype    = ARG_NON,                   \
+    .atype    = SRZ_ARG_NON,               \
     .srt      = SHORT,                     \
     .lng      = LONG,                      \
-    .descr    = DESCR,                     \
+    .desc     = DESCR,                     \
     .fin      = false,                     \
+    .val      = {0},                       \
 }
 #define SRZ_POS(IDENT, SHORT, LONG, DESCR) \
 {                                          \
     .ident    = IDENT,                     \
-    .atype    = ARG_POS,                   \
+    .atype    = SRZ_ARG_POS,               \
     .srt      = SHORT,                     \
     .lng      = LONG,                      \
-    .descr    = DESCR,                     \
+    .desc     = DESCR,                     \
     .fin      = false,                     \
+    .val      = {0},                       \
 }
+
+
 /*
- * ******** WARNING!!!!
- * Seriosuly! Don't use this:
- * - Only long options are supported
- * - Only "=" assignment is support
- * - It is likely to cause confusion to users
+ * ******** !!!! WARNING !!!! ********
+ * Long options (and by GNU extension short options as well) **can** support "optional" arguments.
+ * Seriously!! Don't use this feature! There's lots of reasons:
+ * - It is likely to cause confusion to users when it's done wrong.
+ * - Only long options are supported widely (GNU extension for short optionals)
+ * - Only "=" assignment is supported (not spaces) for long opts, only no space is supported for short opts
  * */
 #define SRZ_OPT(IDENT, SHORT, LONG, DESCR) \
 {                                          \
     .ident    = IDENT,                     \
-    .atype    = ARG_OPT,                   \
+    .atype    = SRZ_ARG_OPT,               \
     .srt      = SHORT,                     \
     .lng      = LONG,                      \
-    .descr    = DESCR,                     \
+    .desc     = DESCR,                     \
     .fin      = false,                     \
+    .val      = {0},                       \
 }
-
 
 
 //Remember to update the string translation table srz_error_en[]
@@ -167,6 +216,7 @@ typedef enum {
     SRZ_ERR_MULTI_POSITIONAL,
     SRZ_ERR_POSTIONAL_FOUND,
     SRZ_ERR_NO_SHORT_LONG,
+    SRZ_ERR_OPTS_MAX_TOO_SMALL,
 } srz_errno_t;
 
 typedef struct srz_error_en {
@@ -176,15 +226,90 @@ typedef struct srz_error_en {
 
 
 typedef int (* srz_opt_handler_t)(const srz_opt_t* const opt, const char* const optval, void* user);
+srz_errno_t srz_parse(int argc, char** argv, srz_opt_t* opts, srz_opt_handler_t opt_handler, void* user);
 
-srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handler_t opt_handler, void* user);
+#define _srz_add_x(n,T) \
+    int srz_add_##n(char* sopt, char* lopt, char* desc, T* dest, T init)
 
+#define _srz_add_X(N,T) \
+    int srz_add_##N(char* sopt, char* lopt, char* desc, T** dest)
+
+#define _srz_add_xX(n,N,T) \
+    _srz_add_x(n,T); \
+    _srz_add_X(N,T)
+
+_srz_add_xX(i, I, int64_t);
+_srz_add_xX(u, U, uint64_t);
+_srz_add_xX(f, F, double);
+_srz_add_xX(s, S, char*);
+
+#if __STDC__==1 && __STDC_VERSION__ >= 201112L
+#define srz_opt(sopt, lopt, descr, dest, init) _Generic( (init),   \
+              int8_t: srz_add_i,                                   \
+              int16_t: srz_add_i,                                  \
+              int32_t: srz_add_i,                                  \
+              int64_t: srz_add_i,                                  \
+              uint8_t: srz_add_u,                                  \
+              uint16_t: srz_add_u,                                 \
+              uint32_t: srz_add_u,                                 \
+              uint64_t: srz_add_u,                                 \
+              float: srz_add_f,                                    \
+              double: srz_add_f,                                   \
+              char*: srz_add_s                                     \
+              )( sopt, lopt, descr, dest, init)
+
+#define srz_vec(sopt, lopt, descr, dest) _Generic( (dest),   \
+              int8_t**: srz_add_I,                           \
+              int16_t**: srz_add_I,                          \
+              int32_t**: srz_add_I,                          \
+              int64_t**: srz_add_I,                          \
+              uint8_t**: srz_add_U,                          \
+              uint16_t**: srz_add_U,                         \
+              uint32_t**: srz_add_U,                         \
+              uint64_t**: srz_add_U,                         \
+              float**: srz_add_F,                            \
+              double**: srz_add_F,                           \
+              char***: srz_add_S                             \
+              )( sopt, lopt, descr, dest)
+#endif
+
+
+int srz_add_e(char* sopt, char* lopt, char* desc, int* dest, int init, srz_enum_t* map);
+int srz_add_E(char* sopt, char* lopt, char* desc, int** dest, srz_enum_t* map);
+#define srz_enm(sopt, lopt, desc, dest, init, map) \
+    srz_add_e(sopt, lopt, desc, dest, init, map)
+#define srz_ens(sopt, lopt, desc, dest, map) \
+    srz_add_E(sopt, lopt, desc, dest, map)
+
+
+int srz_add_b( char* sopt, char* lopt, char* desc, int* dest);
+#define srz_flg(sopt, lopt, desc, dest) \
+    srz_add_b(sopt, lopt, desc, dest)
+
+int srz_add_P(char* sopt, char* lopt, char* desc, char*** dest);
+#define srz_pos(sopt, lopt, desc, dest) \
+    srz_add_P(sopt, lopt, desc, dest)
+
+
+
+typedef struct srz {
+    srz_opt_t opts[SRZ_OPTS_MAX];
+    srz_errno_t errno;
+    bool init_complete;
+    size_t opt_idx;
+    bool help;
+} srz_t;
+
+
+
+extern  srz_t ___srz___;
 
 /*
 * Implementation!
 * ============================================================================
 */
 #ifndef SRZ_HONLY
+
 
 static struct srz_error_en srz_error_en[] = {
     {SRZ_ERR_NONE,                "No error"},
@@ -199,6 +324,7 @@ static struct srz_error_en srz_error_en[] = {
     {SRZ_ERR_MULTI_POSITIONAL,    "Multiple positional options found (ARG_POS), only 1 permitted. Remove additional options"},
     {SRZ_ERR_POSTIONAL_FOUND,     "Positional arguments found, but there is no positional option. Add ARG_POS, or remove positional arguments"},
     {SRZ_ERR_NO_SHORT_LONG,       "Neither a short or long option string were supplied. Both cannot be blank. Either a short or long option string is required"},
+    {SRZ_ERR_OPTS_MAX_TOO_SMALL,  "The options memory space is too small, reduce the number of options in use or enlarge SRZ_OPTS_MAX and recompile" },
     {0,                           0 }
 };
 
@@ -262,6 +388,129 @@ static inline void _srz_msg(srz_dbg_e mode, int ln, const char* fn, const char* 
     va_end(args);
 }
 
+
+/* Implicit SRZ state holder */
+srz_t ___srz___;
+
+static inline void _srz_init(void)
+{
+    if(!___srz___.init_complete){
+        memset(&___srz___, 0, sizeof(srz_t));
+        ___srz___.init_complete = 1;
+    }
+}
+
+static inline int _srz_add_check()
+{
+    if(SRZ_OPTS_MAX - ___srz___.opt_idx < 1){
+        SRZ_FAIL("%s. Current size = %i\n", srz_err2str_en(SRZ_ERR_SOPTS_MAX_TOO_SMALL), SRZ_SOPTS_MAX);
+        return SRZ_ERR_SOPTS_MAX_TOO_SMALL;
+    }
+
+    return 0;
+}
+
+
+#define _srz_add_x_imp(N,T,O)                               \
+_srz_add_x(N,T)                                             \
+{                                                           \
+    _srz_init();                                            \
+                                                            \
+    if(_srz_add_check()){                                   \
+        return SRZ_ERR_SOPTS_MAX_TOO_SMALL;                 \
+    }                                                       \
+                                                            \
+    srz_opt_t* opt = ___srz___.opts + ___srz___.opt_idx;    \
+    opt->ident = ___srz___.opt_idx;                         \
+    opt->srt   = sopt;                                      \
+    opt->lng   = lopt;                                      \
+    opt->desc  = desc;                                      \
+    opt->atype = SRZ_ARG_REQ;                               \
+    opt->val.type = O;                                      \
+    opt->val.init.N = init;                                 \
+    opt->val.dest.N = dest;                                 \
+                                                            \
+    *dest = init;                                           \
+                                                            \
+    ___srz___.opt_idx++;                                    \
+                                                            \
+    return 0;                                               \
+}
+
+_srz_add_x_imp(i,int64_t,  SRZ_OPT_INT)
+_srz_add_x_imp(u,uint64_t, SRZ_OPT_UINT)
+_srz_add_x_imp(f,double,   SRZ_OPT_FLOAT)
+_srz_add_x_imp(s,char*,    SRZ_OPT_STR)
+
+
+#define _srz_add_X_imp(N,T, O)                              \
+_srz_add_X(N,T)                                             \
+{                                                           \
+    _srz_init();                                            \
+                                                            \
+    if(_srz_add_check()){                                   \
+        return SRZ_ERR_SOPTS_MAX_TOO_SMALL;                 \
+    }                                                       \
+                                                            \
+    srz_opt_t* opt = ___srz___.opts + ___srz___.opt_idx;    \
+    opt->ident = ___srz___.opt_idx;                         \
+    opt->srt   = sopt;                                      \
+    opt->lng   = lopt;                                      \
+    opt->desc  = desc;                                      \
+    opt->atype = SRZ_ARG_REQ;                               \
+    opt->val.type = O;                                      \
+    opt->val.dest.N = dest;                                 \
+    ___srz___.opt_idx++;                                    \
+                                                            \
+    return 0;                                               \
+}
+
+_srz_add_X_imp(I,int64_t,  SRZ_OPT_INT)
+_srz_add_X_imp(U,uint64_t, SRZ_OPT_UINT)
+_srz_add_X_imp(F,double,   SRZ_OPT_FLOAT)
+_srz_add_X_imp(S,char*,    SRZ_OPT_STR)
+
+
+int srz_add_E(char* sopt, char* lopt, char* desc, int** dest, srz_enum_t* map)
+{
+    return 0;
+}
+
+
+int srz_add_b( char* sopt, char* lopt, char* desc, int* dest)
+{
+    return 0;
+}
+
+
+int srz_add_P(char* sopt, char* lopt, char* desc, char*** dest)
+{
+    return 0;
+}
+
+
+int srz_add_e(char* sopt, char* lopt, char* desc, int* dest, int init, srz_enum_t* map)
+{
+    _srz_init();
+
+    if(_srz_add_check()){
+        return SRZ_ERR_SOPTS_MAX_TOO_SMALL;
+    }
+
+    srz_opt_t* opt = ___srz___.opts + ___srz___.opt_idx;
+    opt->ident = ___srz___.opt_idx;
+    opt->srt   = sopt;
+    opt->lng   = lopt;
+    opt->desc  = desc;
+    opt->atype = SRZ_ARG_REQ;
+    opt->val.type = O;
+    opt->val.dest.N = dest;
+
+    ___srz___.opt_idx++;
+
+    return 0;
+}
+
 static inline int isempty(const char* s) {
     if(s == NULL){
         return 1;
@@ -315,7 +564,7 @@ static inline int _srz_positional_count(srz_opt_t opts[]) {
     int result = 0;
     for(srz_opt_t* opt = opts; !opt->fin; opt++){
 
-        if(opt->atype == ARG_POS){
+        if(opt->atype == SRZ_ARG_POS){
             result++;
         }
     }
@@ -326,7 +575,7 @@ static inline int _srz_positional_count(srz_opt_t opts[]) {
 static inline srz_opt_t* _srz_get_positional(srz_opt_t opts[]) {
     for(srz_opt_t* opt = opts; !opt->fin; opt++){
 
-        if(opt->atype == ARG_POS){
+        if(opt->atype == SRZ_ARG_POS){
             return opt;
         }
     }
@@ -336,7 +585,7 @@ static inline srz_opt_t* _srz_get_positional(srz_opt_t opts[]) {
 
 static inline int _srz_no_short_long(srz_opt_t opts[]) {
     for(srz_opt_t* opt = opts; !opt->fin; opt++){
-        if(opt->atype != ARG_POS){
+        if(opt->atype != SRZ_ARG_POS){
             if(isempty(opt->srt) && isempty(opt->lng)){
                 return 1;
             }
@@ -365,27 +614,49 @@ static inline srz_errno_t _srz_build_short_opts(srz_opt_t opts[], char* short_op
 
         const char srt_opt = srt[0];
 
-        if(strchr(short_opts_str,srt_opt)){
+        if(strchr(short_opts_str, srt_opt)){
             SRZ_FAIL("%s `%c`\n", srz_err2str_en(SRZ_ERR_SOPT_DUP), srt_opt);
             return SRZ_ERR_SOPT_DUP;
         }
 
-        if(SRZ_SOPTS_MAX - i < 3){
+        if(SRZ_SOPTS_MAX - i < 2){
             SRZ_FAIL("%s. Current size = %i\n", srz_err2str_en(SRZ_ERR_SOPTS_MAX_TOO_SMALL), SRZ_SOPTS_MAX);
             return SRZ_ERR_SOPTS_MAX_TOO_SMALL;
         }
 
-        if(opt->atype == ARG_OPT){
+/* GNU supports optional short arguments as an extension */
+#ifndef _GNU_SOURCE
+        if(opt->atype == SRZ_ARG_OPT){
             SRZ_FAIL("%s '%c'\n", srz_err2str_en(SRZ_ERR_SOPT_OPTIONAL), srt_opt);
             return SRZ_ERR_SOPT_OPTIONAL;
         }
+#endif
 
         short_opts_str[++i] = srt_opt;
-        
-        if(opt->atype == ARG_REQ || opt->atype == ARG_POS){
+
+        if(opt->atype == SRZ_ARG_REQ || opt->atype == SRZ_ARG_POS){
+
+            if(SRZ_SOPTS_MAX - i < 2){
+                SRZ_FAIL("%s. Current size = %i\n", srz_err2str_en(SRZ_ERR_SOPTS_MAX_TOO_SMALL), SRZ_SOPTS_MAX);
+                return SRZ_ERR_SOPTS_MAX_TOO_SMALL;
+            }
+
+
             short_opts_str[++i] = ':';
         }
 
+/* GNU supports optional short arguments as an extension */
+#ifdef _GNU_SOURCE
+        if(opt->atype == ARG_OPT){
+
+            if(SRZ_SOPTS_MAX - i < 2){
+                SRZ_FAIL("%s. Current size = %i\n", srz_err2str_en(SRZ_ERR_SOPTS_MAX_TOO_SMALL), SRZ_SOPTS_MAX);
+                return SRZ_ERR_SOPTS_MAX_TOO_SMALL;
+            }
+
+            short_opts_str[++i] = ':';
+        }
+#endif
     }
 
     SRZ_DBG("%s\n", short_opts_str);
@@ -417,13 +688,10 @@ static inline srz_errno_t _srz_build_long_opts(srz_opt_t opts[], struct option* 
         long_opts[i].name = opt->lng;
         long_opts[i].val  = 0;
         switch(opt->atype){
-            case ARG_NON:   long_opts[i].has_arg = no_argument;         break;
-            case ARG_OPT:   long_opts[i].has_arg = optional_argument;   break;
-            case ARG_REQ:   long_opts[i].has_arg = required_argument;   break;
-            case ARG_POS:   long_opts[i].has_arg = required_argument;   break;
-            default:
-                SRZ_FAIL("%s. Given value is %i\n", srz_err2str_en(SRZ_ERR_UNKNOWN_ARG_TYPE), opt->atype);
-                return SRZ_ERR_UNKNOWN_ARG_TYPE;
+            case SRZ_ARG_NON:   long_opts[i].has_arg = no_argument;         break;
+            case SRZ_ARG_OPT:   long_opts[i].has_arg = optional_argument;   break;
+            case SRZ_ARG_REQ:   long_opts[i].has_arg = required_argument;   break;
+            case SRZ_ARG_POS:   long_opts[i].has_arg = required_argument;   break;
         }
 
     }
@@ -475,8 +743,6 @@ srz_errno_t _srz_do_getop(
                     SRZ_FAIL("%s. (`%s`)\n", srz_err2str_en(SRZ_ERR_INTERNAL), long_opts[optindx].name);
                     return SRZ_ERR_INTERNAL;
                 }
-
-
                 break;
             case 1:
                 srz_opt = _srz_get_positional(opts);
@@ -530,7 +796,7 @@ srz_errno_t _srz_do_getop(
     return err;
 }
 
-srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handler_t opt_handler, void* user) {
+srz_errno_t srz_parse(int argc, char** argv, srz_opt_t* opts, srz_opt_handler_t opt_handler, void* user) {
 
 
     srz_errno_t err = SRZ_ERR_NONE;
@@ -561,7 +827,6 @@ srz_errno_t srz_parseopts(int argc, char** argv, srz_opt_t opts[], srz_opt_handl
     }
 
     _srz_debug_dump_long(long_opts);
-
 
     _srz_do_getop(argc,argv,opts,opt_handler,short_opts_str,long_opts, user);
     
