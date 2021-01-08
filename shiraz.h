@@ -91,13 +91,35 @@
 #endif
 
 typedef enum {
-    SRZ_OPT_BOOL,
-    SRZ_OPT_INT,
-    SRZ_OPT_UINT,
-    SRZ_OPT_FLOAT,
-    SRZ_OPT_STR,
-    SRZ_OPT_ENUM,
-} srz_otype_t;
+    SRZ_VAL_BOOL,
+    SRZ_VAL_INT,
+    SRZ_VAL_INT8,
+    SRZ_VAL_INT16,
+    SRZ_VAL_INT32,
+    SRZ_VAL_INT64,
+    SRZ_VAL_UINT,
+    SRZ_VAL_UINT8,
+    SRZ_VAL_UINT16,
+    SRZ_VAL_UINT32,
+    SRZ_VAL_UINT64,
+    SRZ_VAL_FLOAT,
+    SRZ_VAL_DOUBLE,
+    SRZ_VAL_STR,
+    SRZ_VAL_ENUM,
+} srz_val_type_t;
+
+typedef enum {
+    SRZ_OPT_NONE,
+    SRZ_OPT_SHORT,
+    SRZ_OPT_LONG,
+    SRZ_OPT_POS,
+    SRZ_OPT_UNKOWN_NONE,
+    SRZ_OPT_UNKOWN_LONG,
+    SRZ_OPT_UNKOWN_SHORT,
+    SRZ_OPT_ARG_MISSING_NONE,
+    SRZ_OPT_ARG_MISSING_LONG,
+    SRZ_OPT_ARG_MISSING_SHORT,
+} srz_opt_type_t;
 
 typedef struct srz_enum {
     int val;
@@ -105,7 +127,8 @@ typedef struct srz_enum {
 } srz_enum_t;
 
 typedef struct srz_val {
-    srz_otype_t type;
+    srz_val_type_t type;
+    bool is_vector;
     union {
         bool b;
         int64_t i;
@@ -114,22 +137,9 @@ typedef struct srz_val {
         char* s;
     } init;
 
-    union {
-        bool* b;
-        int64_t* i;
-        uint64_t* u;
-        double* f;
-        char** s;
+    void* dest;
 
-        //For vector types
-        bool** B;
-        int64_t** I;
-        uint64_t** U;
-        double** F;
-        char*** S;
-    } dest;
-
-    srz_enum_t* enm;
+    srz_enum_t* enm_map;
 } srz_val_t;
 
 typedef enum {
@@ -145,8 +155,8 @@ typedef struct srz_option {
     char* srt;
     char* lng;
     char* desc;
-    bool fin;
     srz_val_t val;
+    bool fin; //Indicates end of argument list
 } srz_opt_t;
 
 #define SRZ_FIN { .fin = true }
@@ -213,10 +223,13 @@ typedef enum {
     SRZ_ERR_LOPTS_MAX_TOO_SMALL,
     SRZ_ERR_UNKNOWN_ARG_TYPE,
     SRZ_ERR_INTERNAL,
+    SRZ_ERR_INTERNAL2,
     SRZ_ERR_MULTI_POSITIONAL,
     SRZ_ERR_POSTIONAL_FOUND,
     SRZ_ERR_NO_SHORT_LONG,
     SRZ_ERR_OPTS_MAX_TOO_SMALL,
+    SRZ_ERR_NO_OPTS_ADDED,
+    SRZ_ERR_LAST, //Last error code, use this as a base for custom errors
 } srz_errno_t;
 
 typedef struct srz_error_en {
@@ -225,8 +238,10 @@ typedef struct srz_error_en {
 } srz_err_t;
 
 
-typedef int (* srz_opt_handler_t)(const srz_opt_t* const opt, const char* const optval, void* user);
-srz_errno_t srz_parse(int argc, char** argv, srz_opt_t* opts, srz_opt_handler_t opt_handler, void* user);
+typedef int (* srz_opt_handler_t)(srz_opt_type_t opt_type, const srz_opt_t* const opt, const char* const optval, void* user);
+srz_errno_t srz_parse_ex(int argc, char** argv, srz_opt_t* opts, srz_opt_handler_t opt_handler, void* user);
+
+int srz_parse(int argc, char** argv);
 
 #define _srz_add_x(n,T) \
     int srz_add_##n(char* sopt, char* lopt, char* desc, T* dest, T init)
@@ -238,53 +253,63 @@ srz_errno_t srz_parse(int argc, char** argv, srz_opt_t* opts, srz_opt_handler_t 
     _srz_add_x(n,T); \
     _srz_add_X(N,T)
 
-_srz_add_xX(i, I, int64_t);
-_srz_add_xX(u, U, uint64_t);
-_srz_add_xX(f, F, double);
+_srz_add_xX(i, I, int);
+_srz_add_xX(i8,  I8,  int8_t);
+_srz_add_xX(i16, I16, int16_t);
+_srz_add_xX(i32, I32, int32_t);
+_srz_add_xX(i64, I64, int64_t);
+
+_srz_add_xX(u, U, unsigned);
+_srz_add_xX(u8, U8, uint8_t);
+_srz_add_xX(u16, U16, uint16_t);
+_srz_add_xX(u32, U32, uint32_t);
+_srz_add_xX(u64, U64, uint64_t);
+
+_srz_add_xX(f, F, float);
+_srz_add_xX(d, D, double);
+
 _srz_add_xX(s, S, char*);
 
 #if __STDC__==1 && __STDC_VERSION__ >= 201112L
-#define srz_opt(sopt, lopt, descr, dest, init) _Generic( (init),   \
-              int8_t: srz_add_i,                                   \
-              int16_t: srz_add_i,                                  \
-              int32_t: srz_add_i,                                  \
-              int64_t: srz_add_i,                                  \
-              uint8_t: srz_add_u,                                  \
-              uint16_t: srz_add_u,                                 \
-              uint32_t: srz_add_u,                                 \
-              uint64_t: srz_add_u,                                 \
-              float: srz_add_f,                                    \
-              double: srz_add_f,                                   \
-              char*: srz_add_s                                     \
+#define srz_opt(sopt, lopt, descr, dest, init) _Generic( (init), \
+              int8_t: srz_add_i8,                                \
+              int16_t: srz_add_i16,                              \
+              int32_t: srz_add_i32,                              \
+              int64_t: srz_add_i64,                              \
+              uint8_t: srz_add_u8,                               \
+              uint16_t: srz_add_u16,                             \
+              uint32_t: srz_add_u32,                             \
+              uint64_t: srz_add_u64,                             \
+              float: srz_add_f,                                  \
+              double: srz_add_d,                                 \
+              char*: srz_add_s                                   \
               )( sopt, lopt, descr, dest, init)
 
 #define srz_vec(sopt, lopt, descr, dest) _Generic( (dest),   \
-              int8_t**: srz_add_I,                           \
-              int16_t**: srz_add_I,                          \
-              int32_t**: srz_add_I,                          \
-              int64_t**: srz_add_I,                          \
-              uint8_t**: srz_add_U,                          \
-              uint16_t**: srz_add_U,                         \
-              uint32_t**: srz_add_U,                         \
-              uint64_t**: srz_add_U,                         \
+              int8_t**: srz_add_I8,                          \
+              int16_t**: srz_add_I16,                        \
+              int32_t**: srz_add_I32,                        \
+              int64_t**: srz_add_I64,                        \
+              uint8_t**: srz_add_U8,                         \
+              uint16_t**: srz_add_U16,                       \
+              uint32_t**: srz_add_U32,                       \
+              uint64_t**: srz_add_U64,                       \
               float**: srz_add_F,                            \
-              double**: srz_add_F,                           \
+              double**: srz_add_D,                           \
               char***: srz_add_S                             \
-              )( sopt, lopt, descr, dest)
+              )(sopt, lopt, descr, dest)
 #endif
 
+#define srz_flg(sopt, lopt, desc, dest) \
+    srz_add_i(sopt, lopt, desc, dest, 0)
 
 int srz_add_e(char* sopt, char* lopt, char* desc, int* dest, int init, srz_enum_t* map);
-int srz_add_E(char* sopt, char* lopt, char* desc, int** dest, srz_enum_t* map);
 #define srz_enm(sopt, lopt, desc, dest, init, map) \
     srz_add_e(sopt, lopt, desc, dest, init, map)
+
+int srz_add_E(char* sopt, char* lopt, char* desc, int** dest, srz_enum_t* map);
 #define srz_ens(sopt, lopt, desc, dest, map) \
     srz_add_E(sopt, lopt, desc, dest, map)
-
-
-int srz_add_b( char* sopt, char* lopt, char* desc, int* dest);
-#define srz_flg(sopt, lopt, desc, dest) \
-    srz_add_b(sopt, lopt, desc, dest)
 
 int srz_add_P(char* sopt, char* lopt, char* desc, char*** dest);
 #define srz_pos(sopt, lopt, desc, dest) \
@@ -299,8 +324,6 @@ typedef struct srz {
     size_t opt_idx;
     bool help;
 } srz_t;
-
-
 
 extern  srz_t ___srz___;
 
@@ -321,10 +344,12 @@ static struct srz_error_en srz_error_en[] = {
     {SRZ_ERR_LOPTS_MAX_TOO_SMALL, "The long options memory space is too small, try enlarging SRZ_LOPTS_MAX and recompiling" },
     {SRZ_ERR_UNKNOWN_ARG_TYPE,    "The option argument type is unkown. Valid values are ARG_NON, ARG_OPT, ARG_REQ"},
     {SRZ_ERR_INTERNAL,            "Internal consistency error. Option found in long_opts structure, but no in SRZ options"},
+    {SRZ_ERR_INTERNAL2,            "Internal consistency error. Unknown return type from _srz_fuzzy_find() function."},
     {SRZ_ERR_MULTI_POSITIONAL,    "Multiple positional options found (ARG_POS), only 1 permitted. Remove additional options"},
     {SRZ_ERR_POSTIONAL_FOUND,     "Positional arguments found, but there is no positional option. Add ARG_POS, or remove positional arguments"},
     {SRZ_ERR_NO_SHORT_LONG,       "Neither a short or long option string were supplied. Both cannot be blank. Either a short or long option string is required"},
     {SRZ_ERR_OPTS_MAX_TOO_SMALL,  "The options memory space is too small, reduce the number of options in use or enlarge SRZ_OPTS_MAX and recompile" },
+    {SRZ_ERR_NO_OPTS_ADDED,       "No Shiraz options have been added. Use szr_opt(), srz_vec(), srz_flg() and related functions to add options"},
     {0,                           0 }
 };
 
@@ -368,7 +393,8 @@ typedef enum {
 #endif
 
 //__attribute__ ((format (printf, 5, 6)))
-static inline void _srz_msg(srz_dbg_e mode, int ln, const char* fn, const char* fu, const char* msg, ...) {
+static inline void _srz_msg(srz_dbg_e mode, int ln, const char* fn, const char* fu, const char* msg, ...)
+{
     va_list args;
     va_start(args, msg);
     const char* mode_str = NULL;
@@ -389,129 +415,8 @@ static inline void _srz_msg(srz_dbg_e mode, int ln, const char* fn, const char* 
 }
 
 
-/* Implicit SRZ state holder */
-srz_t ___srz___;
-
-static inline void _srz_init(void)
+static inline int isempty(const char* s)
 {
-    if(!___srz___.init_complete){
-        memset(&___srz___, 0, sizeof(srz_t));
-        ___srz___.init_complete = 1;
-    }
-}
-
-static inline int _srz_add_check()
-{
-    if(SRZ_OPTS_MAX - ___srz___.opt_idx < 1){
-        SRZ_FAIL("%s. Current size = %i\n", srz_err2str_en(SRZ_ERR_SOPTS_MAX_TOO_SMALL), SRZ_SOPTS_MAX);
-        return SRZ_ERR_SOPTS_MAX_TOO_SMALL;
-    }
-
-    return 0;
-}
-
-
-#define _srz_add_x_imp(N,T,O)                               \
-_srz_add_x(N,T)                                             \
-{                                                           \
-    _srz_init();                                            \
-                                                            \
-    if(_srz_add_check()){                                   \
-        return SRZ_ERR_SOPTS_MAX_TOO_SMALL;                 \
-    }                                                       \
-                                                            \
-    srz_opt_t* opt = ___srz___.opts + ___srz___.opt_idx;    \
-    opt->ident = ___srz___.opt_idx;                         \
-    opt->srt   = sopt;                                      \
-    opt->lng   = lopt;                                      \
-    opt->desc  = desc;                                      \
-    opt->atype = SRZ_ARG_REQ;                               \
-    opt->val.type = O;                                      \
-    opt->val.init.N = init;                                 \
-    opt->val.dest.N = dest;                                 \
-                                                            \
-    *dest = init;                                           \
-                                                            \
-    ___srz___.opt_idx++;                                    \
-                                                            \
-    return 0;                                               \
-}
-
-_srz_add_x_imp(i,int64_t,  SRZ_OPT_INT)
-_srz_add_x_imp(u,uint64_t, SRZ_OPT_UINT)
-_srz_add_x_imp(f,double,   SRZ_OPT_FLOAT)
-_srz_add_x_imp(s,char*,    SRZ_OPT_STR)
-
-
-#define _srz_add_X_imp(N,T, O)                              \
-_srz_add_X(N,T)                                             \
-{                                                           \
-    _srz_init();                                            \
-                                                            \
-    if(_srz_add_check()){                                   \
-        return SRZ_ERR_SOPTS_MAX_TOO_SMALL;                 \
-    }                                                       \
-                                                            \
-    srz_opt_t* opt = ___srz___.opts + ___srz___.opt_idx;    \
-    opt->ident = ___srz___.opt_idx;                         \
-    opt->srt   = sopt;                                      \
-    opt->lng   = lopt;                                      \
-    opt->desc  = desc;                                      \
-    opt->atype = SRZ_ARG_REQ;                               \
-    opt->val.type = O;                                      \
-    opt->val.dest.N = dest;                                 \
-    ___srz___.opt_idx++;                                    \
-                                                            \
-    return 0;                                               \
-}
-
-_srz_add_X_imp(I,int64_t,  SRZ_OPT_INT)
-_srz_add_X_imp(U,uint64_t, SRZ_OPT_UINT)
-_srz_add_X_imp(F,double,   SRZ_OPT_FLOAT)
-_srz_add_X_imp(S,char*,    SRZ_OPT_STR)
-
-
-int srz_add_E(char* sopt, char* lopt, char* desc, int** dest, srz_enum_t* map)
-{
-    return 0;
-}
-
-
-int srz_add_b( char* sopt, char* lopt, char* desc, int* dest)
-{
-    return 0;
-}
-
-
-int srz_add_P(char* sopt, char* lopt, char* desc, char*** dest)
-{
-    return 0;
-}
-
-
-int srz_add_e(char* sopt, char* lopt, char* desc, int* dest, int init, srz_enum_t* map)
-{
-    _srz_init();
-
-    if(_srz_add_check()){
-        return SRZ_ERR_SOPTS_MAX_TOO_SMALL;
-    }
-
-    srz_opt_t* opt = ___srz___.opts + ___srz___.opt_idx;
-    opt->ident = ___srz___.opt_idx;
-    opt->srt   = sopt;
-    opt->lng   = lopt;
-    opt->desc  = desc;
-    opt->atype = SRZ_ARG_REQ;
-    opt->val.type = O;
-    opt->val.dest.N = dest;
-
-    ___srz___.opt_idx++;
-
-    return 0;
-}
-
-static inline int isempty(const char* s) {
     if(s == NULL){
         return 1;
     }
@@ -523,7 +428,8 @@ static inline int isempty(const char* s) {
 }
 
 
-static inline srz_opt_t* _srz_find_short(srz_opt_t opts[], char s) {
+static inline srz_opt_t* _srz_find_short(srz_opt_t opts[], char s)
+{
     for(srz_opt_t* opt = opts; !opt->fin; opt++){
         const char* srt = opt->srt;
         if(isempty(srt)){
@@ -542,7 +448,8 @@ static inline srz_opt_t* _srz_find_short(srz_opt_t opts[], char s) {
     return NULL;
 }
 
-static inline srz_opt_t* _srz_find_long(srz_opt_t opts[], const char* l, int* ignore) {
+static inline srz_opt_t* _srz_find_long(srz_opt_t opts[], const char* l, int* ignore)
+{
     for(srz_opt_t* opt = opts; !opt->fin; opt++){
         if(ignore && opt->ident == *ignore){
             continue;
@@ -560,7 +467,177 @@ static inline srz_opt_t* _srz_find_long(srz_opt_t opts[], const char* l, int* ig
     return NULL;
 }
 
-static inline int _srz_positional_count(srz_opt_t opts[]) {
+
+/*
+ * The following code greatfully borrowed thanks to Titus Wormer
+ *
+ * (The MIT License)
+ *
+ * Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * 'Software'), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ */
+
+static inline size_t _srz_levenshtein_n(const char* a, const size_t length, const char* b, const size_t bLength)
+{
+    // Shortcut optimizations / degenerate cases.
+    if(a == b){
+        return 0;
+    }
+
+    if(length == 0){
+        return bLength;
+    }
+
+    if(bLength == 0){
+        return length;
+    }
+
+    size_t* cache = calloc(length, sizeof(size_t));
+    size_t index = 0;
+    size_t bIndex = 0;
+    size_t distance;
+    size_t bDistance;
+    size_t result;
+    char code;
+
+    // initialize the vector.
+    while(index < length){
+        cache[index] = index + 1;
+        index++;
+    }
+
+    // Loop.
+    while(bIndex < bLength){
+        code = b[bIndex];
+        result = distance = bIndex++;
+        index = SIZE_MAX;
+
+        while(++index < length){
+            bDistance = code == a[index] ? distance : distance + 1;
+            distance = cache[index];
+
+            cache[index] = result = distance > result
+                                    ? bDistance > result
+                                      ? result + 1
+                                      : bDistance
+                                    : bDistance > distance
+                                      ? distance + 1
+                                      : bDistance;
+        }
+    }
+
+    free(cache);
+
+    return result;
+}
+
+static inline size_t _srz_levenshtein(const char* a, const char* b)
+{
+    const size_t length = strlen(a);
+    const size_t bLength = strlen(b);
+
+    return _srz_levenshtein_n(a, length, b, bLength);
+}
+
+
+//Fuzzy search to try and find the best match for an option
+static inline srz_opt_t* _srz_fuzzy_find_opt(srz_opt_t opts[], const char* s, srz_opt_type_t* opt_type_o)
+{
+    //Trivial escape
+    if(isempty(s)){
+        //We're never going to match anything
+        *opt_type_o = SRZ_OPT_NONE;
+        return NULL;
+    }
+
+    //Try an exact match for the short string
+    srz_opt_t* result = NULL;
+    if(strlen(s) == 1){
+        result = _srz_find_short(opts,s[0]);
+        if(result){
+            *opt_type_o = SRZ_OPT_SHORT;
+            return result;
+        }
+    }
+
+    //Try an exact match for the long string
+    result = _srz_find_long(opts,s,NULL);
+    if(result){
+        *opt_type_o = SRZ_OPT_LONG;
+        return result;
+    }
+
+    //Maybe it's a short option with a dash?
+    if(strlen(s) == 2 && s[1] == '-'){
+        result = _srz_find_short(opts,s[1]);
+        if(result){
+            *opt_type_o = SRZ_OPT_SHORT;
+            return result;
+        }
+    }
+
+    //Maybe it's a long option with one dash?
+    if(strlen(s) > 2 && s[1] == '-' ){
+        result = _srz_find_long(opts, s+1, NULL);
+        if(result){
+            *opt_type_o = SRZ_OPT_LONG;
+            return result;
+        }
+    }
+
+    //Maybe it's a long option with two dashes?
+    if(strlen(s) > 3 && s[1] == '-' && s[2] == '-'){
+        result = _srz_find_long(opts, s+2, NULL);
+        if(result){
+            *opt_type_o = SRZ_OPT_LONG;
+            return result;
+        }
+    }
+
+    //We've tried hard to find an exact match, now try fuzzy matching
+
+    size_t best_match_lev = ~0;
+    srz_opt_t* best_match = NULL;
+    *opt_type_o = SRZ_OPT_NONE;
+
+    for(srz_opt_t* opt = opts; !opt->fin; opt++){
+        const char* lng = opt->lng;
+        const char* srt = opt->srt;
+
+        if(!isempty(lng)){
+            const size_t match = _srz_levenshtein(lng,s);
+            if(match < best_match_lev){
+                best_match_lev = match;
+                best_match = opt;
+                *opt_type_o = SRZ_OPT_LONG;
+            }
+        }
+
+        if(!isempty(srt)){
+            const size_t match = _srz_levenshtein(srt,s);
+            if(match < best_match_lev){
+                best_match_lev = match;
+                best_match = opt;
+                *opt_type_o = SRZ_OPT_SHORT;
+            }
+        }
+    }
+
+    return best_match;
+}
+
+static inline int _srz_positional_count(srz_opt_t opts[])
+{
     int result = 0;
     for(srz_opt_t* opt = opts; !opt->fin; opt++){
 
@@ -572,7 +649,8 @@ static inline int _srz_positional_count(srz_opt_t opts[]) {
     return result;
 }
 
-static inline srz_opt_t* _srz_get_positional(srz_opt_t opts[]) {
+static inline srz_opt_t* _srz_get_positional(srz_opt_t opts[])
+{
     for(srz_opt_t* opt = opts; !opt->fin; opt++){
 
         if(opt->atype == SRZ_ARG_POS){
@@ -583,7 +661,8 @@ static inline srz_opt_t* _srz_get_positional(srz_opt_t opts[]) {
     return NULL;
 }
 
-static inline int _srz_no_short_long(srz_opt_t opts[]) {
+static inline int _srz_no_short_long(srz_opt_t opts[])
+{
     for(srz_opt_t* opt = opts; !opt->fin; opt++){
         if(opt->atype != SRZ_ARG_POS){
             if(isempty(opt->srt) && isempty(opt->lng)){
@@ -596,7 +675,8 @@ static inline int _srz_no_short_long(srz_opt_t opts[]) {
 }
 
 
-static inline srz_errno_t _srz_build_short_opts(srz_opt_t opts[], char* short_opts_str) {
+static inline srz_errno_t _srz_build_short_opts(srz_opt_t opts[], char* short_opts_str)
+{
     short_opts_str[0] = '-'; //Handle positional arguments in place
     short_opts_str[1] = ':'; //Cause ":" to be returned on missing arg
     int i = 1;
@@ -659,8 +739,6 @@ static inline srz_errno_t _srz_build_short_opts(srz_opt_t opts[], char* short_op
 #endif
     }
 
-    SRZ_DBG("%s\n", short_opts_str);
-
     return SRZ_ERR_NONE;
 }
 
@@ -714,6 +792,7 @@ void _srz_debug_dump_long(struct option* opts)
 #endif
 }
 
+
 srz_errno_t _srz_do_getop(
         int argc,
         char** argv,
@@ -728,7 +807,6 @@ srz_errno_t _srz_do_getop(
 
     int optindx = -1;
     int opt = -1;
-    srz_opt_t* srz_opt = NULL;
 
     while(1){
         opt = getopt_long(argc, argv, short_opts_str, long_opts, &optindx);
@@ -736,6 +814,8 @@ srz_errno_t _srz_do_getop(
             break;
         }
 
+        srz_opt_t* srz_opt = NULL;
+        srz_opt_type_t opt_type = SRZ_OPT_NONE;
         switch(opt){
             case 0:
                 srz_opt = _srz_find_long(opts, long_opts[optindx].name, NULL);
@@ -743,6 +823,7 @@ srz_errno_t _srz_do_getop(
                     SRZ_FAIL("%s. (`%s`)\n", srz_err2str_en(SRZ_ERR_INTERNAL), long_opts[optindx].name);
                     return SRZ_ERR_INTERNAL;
                 }
+                opt_type = SRZ_OPT_LONG;
                 break;
             case 1:
                 srz_opt = _srz_get_positional(opts);
@@ -750,33 +831,65 @@ srz_errno_t _srz_do_getop(
                     SRZ_WARN("%s.\n", srz_err2str_en(SRZ_ERR_POSTIONAL_FOUND));
                     return SRZ_ERR_POSTIONAL_FOUND;
                 }
+                opt_type = SRZ_OPT_LONG;
                 break;
 
             case '?':
-                printf("Unknown option `%c` %s %i %s`\n", optopt, optarg, optind, argv[optind -1]);
-                continue;
+                SRZ_DBG("Unknown option `%c` %s %i %s`\n", optopt, optarg, optind, argv[optind -1]);
+                srz_opt = _srz_fuzzy_find_opt(opts,argv[optind -1], &opt_type);
+                switch(opt_type){
+                    case SRZ_OPT_NONE:
+                        opt_type = SRZ_OPT_UNKOWN_NONE;
+                        break;
+                    case SRZ_OPT_SHORT:
+                        opt_type = SRZ_OPT_UNKOWN_SHORT;
+                        break;
+                    case SRZ_OPT_LONG:
+                        opt_type = SRZ_OPT_UNKOWN_LONG;
+                        break;
+                    default:
+                        SRZ_FAIL("%s. (`%c`)\n", srz_err2str_en(SRZ_ERR_INTERNAL2), opt_type);
+                        return SRZ_ERR_INTERNAL2;
+                }
+                break;
 
             case ':':
-                printf("Missing option for `%c` %s %i %s\n", optopt, optarg, optind, argv[optind -1]);
-                continue;
+                SRZ_DBG("Missing argument for `%c` %s %i %s\n", optopt, optarg, optind, argv[optind -1]);
+                srz_opt = _srz_fuzzy_find_opt(opts,argv[optind -1], &opt_type);
+
+                switch(opt_type){
+                    case SRZ_OPT_NONE:
+                        opt_type = SRZ_OPT_ARG_MISSING_NONE;
+                        break;
+                    case SRZ_OPT_SHORT:
+                        opt_type = SRZ_OPT_ARG_MISSING_SHORT;
+                        break;
+                    case SRZ_OPT_LONG:
+                        opt_type = SRZ_OPT_ARG_MISSING_LONG;
+                        break;
+                    default:
+                        SRZ_FAIL("%s. (`%c`)\n", srz_err2str_en(SRZ_ERR_INTERNAL2), opt_type);
+                        return SRZ_ERR_INTERNAL2;
+                }
+                break;
 
             default:
                 srz_opt = _srz_find_short(opts,opt);
+                opt_type = SRZ_OPT_SHORT;
                 if(!srz_opt){
                     SRZ_FAIL("%s. (`%c`)\n", srz_err2str_en(SRZ_ERR_INTERNAL), opt);
                     return SRZ_ERR_INTERNAL;
                 }
         }
 
-        err = opt_handler(srz_opt, optarg, user);
+        err = opt_handler(opt_type, srz_opt, optarg, user);
         if(err){
             return err;
         }
 
     }
 
-
-    srz_opt = _srz_get_positional(opts);
+    srz_opt_t* srz_opt = _srz_get_positional(opts);
     if(optind < argc){
         if(!srz_opt){
             SRZ_WARN("%s.\n", srz_err2str_en(SRZ_ERR_POSTIONAL_FOUND));
@@ -784,20 +897,18 @@ srz_errno_t _srz_do_getop(
         }
 
         for(; optind < argc; optind++){
-            err = opt_handler(srz_opt, argv[optind], user);
+            err = opt_handler(SRZ_OPT_POS, srz_opt, argv[optind], user);
             if(err){
                 return err;
             }
         }
     }
 
-
-
     return err;
 }
 
-srz_errno_t srz_parse(int argc, char** argv, srz_opt_t* opts, srz_opt_handler_t opt_handler, void* user) {
-
+srz_errno_t srz_parse_ex(int argc, char** argv, srz_opt_t* opts, srz_opt_handler_t opt_handler, void* user)
+{
 
     srz_errno_t err = SRZ_ERR_NONE;
     if(_srz_no_short_long(opts)){
@@ -809,7 +920,7 @@ srz_errno_t srz_parse(int argc, char** argv, srz_opt_t* opts, srz_opt_handler_t 
         SRZ_FAIL("%s.\n", srz_err2str_en(SRZ_ERR_MULTI_POSITIONAL));
         return SRZ_ERR_MULTI_POSITIONAL;
     }
-    
+
     char short_opts_str[SRZ_SOPTS_MAX];
     memset(short_opts_str, 0, SRZ_SOPTS_MAX);
     err = _srz_build_short_opts(opts, short_opts_str);
@@ -829,12 +940,298 @@ srz_errno_t srz_parse(int argc, char** argv, srz_opt_t* opts, srz_opt_handler_t 
     _srz_debug_dump_long(long_opts);
 
     _srz_do_getop(argc,argv,opts,opt_handler,short_opts_str,long_opts, user);
-    
+
     return err;
 }
 
 
+
+
+/* Implicit SRZ state holder */
+srz_t ___srz___;
+
+static inline void _srz_init(void)
+{
+    if(!___srz___.init_complete){
+        memset(&___srz___, 0, sizeof(srz_t));
+        ___srz___.init_complete = 1;
+    }
+}
+
+static inline int _srz_add_check()
+{
+    if(SRZ_OPTS_MAX - ___srz___.opt_idx < 2){
+        SRZ_FAIL("%s. Current size = %i\n", srz_err2str_en(SRZ_ERR_SOPTS_MAX_TOO_SMALL), SRZ_SOPTS_MAX);
+        return SRZ_ERR_SOPTS_MAX_TOO_SMALL;
+    }
+
+    return 0;
+}
+
+
+#define _srz_add_x_imp(I,N,T,O)                             \
+_srz_add_x(N,T)                                             \
+{                                                           \
+    _srz_init();                                            \
+                                                            \
+    if(_srz_add_check()){                                   \
+        ___srz___.errno = SRZ_ERR_SOPTS_MAX_TOO_SMALL;      \
+        return -1 ;                                         \
+    }                                                       \
+                                                            \
+    srz_opt_t* opt  = ___srz___.opts + ___srz___.opt_idx;   \
+    opt->fin        = 0;                                    \
+    opt->ident      = ___srz___.opt_idx;                    \
+    opt->srt        = sopt;                                 \
+    opt->lng        = lopt;                                 \
+    opt->desc       = desc;                                 \
+    opt->atype      = SRZ_ARG_REQ;                          \
+    opt->val.type   = O;                                    \
+    opt->val.init.I = init;                                 \
+    opt->val.dest   = dest;                                 \
+    opt->val.is_vector = 0;                                 \
+                                                            \
+    *dest = init;                                           \
+                                                            \
+    ___srz___.opt_idx++;                                    \
+    opt = ___srz___.opts + ___srz___.opt_idx;               \
+    opt->fin = 1;                                           \
+                                                            \
+    return 0;                                               \
+}
+
+_srz_add_x_imp(i, i,   int,      SRZ_VAL_INT)
+_srz_add_x_imp(i, i8,  int8_t,   SRZ_VAL_INT8)
+_srz_add_x_imp(i, i16, int16_t,  SRZ_VAL_INT16)
+_srz_add_x_imp(i, i32, int32_t,  SRZ_VAL_INT32)
+_srz_add_x_imp(i, i64, int64_t,  SRZ_VAL_INT64)
+_srz_add_x_imp(i, b,   bool,     SRZ_VAL_BOOL)
+_srz_add_x_imp(u, u,   unsigned, SRZ_VAL_INT)
+_srz_add_x_imp(u, u8,  uint8_t,  SRZ_VAL_UINT8)
+_srz_add_x_imp(u, u16, uint16_t, SRZ_VAL_UINT16)
+_srz_add_x_imp(u, u32, uint32_t, SRZ_VAL_UINT32)
+_srz_add_x_imp(u, u64, uint64_t, SRZ_VAL_UINT64)
+_srz_add_x_imp(f, f,   float,    SRZ_VAL_FLOAT)
+_srz_add_x_imp(f, d,   double,   SRZ_VAL_DOUBLE)
+_srz_add_x_imp(s, s,   char*,    SRZ_VAL_STR)
+
+#define _srz_add_X_imp(N,T, O)                              \
+_srz_add_X(N,T)                                             \
+{                                                           \
+    _srz_init();                                            \
+                                                            \
+    if(_srz_add_check()){                                   \
+        ___srz___.errno = SRZ_ERR_SOPTS_MAX_TOO_SMALL;      \
+        return -1 ;                                         \
+    }                                                       \
+                                                            \
+    srz_opt_t* opt = ___srz___.opts + ___srz___.opt_idx;    \
+    opt->ident = ___srz___.opt_idx;                         \
+    opt->fin   = 0;                                         \
+    opt->srt   = sopt;                                      \
+    opt->lng   = lopt;                                      \
+    opt->desc  = desc;                                      \
+    opt->atype = SRZ_ARG_REQ;                               \
+    opt->val.type = O;                                      \
+    opt->val.dest = dest;                                   \
+    opt->val.is_vector = 1;                                 \
+                                                            \
+    ___srz___.opt_idx++;                                    \
+    opt = ___srz___.opts + ___srz___.opt_idx;               \
+    opt->fin = 1;                                           \
+                                                            \
+    return 0;                                               \
+}
+
+_srz_add_X_imp(I,   int,      SRZ_VAL_INT)
+_srz_add_X_imp(I8,  int8_t,   SRZ_VAL_INT8)
+_srz_add_X_imp(I16, int16_t,  SRZ_VAL_INT16)
+_srz_add_X_imp(I32, int32_t,  SRZ_VAL_INT32)
+_srz_add_X_imp(I64, int64_t,  SRZ_VAL_INT64)
+_srz_add_X_imp(B,   bool,     SRZ_VAL_BOOL)
+_srz_add_X_imp(U,   unsigned, SRZ_VAL_UINT)
+_srz_add_X_imp(U8,  uint8_t,  SRZ_VAL_UINT8)
+_srz_add_X_imp(U16, uint16_t, SRZ_VAL_UINT16)
+_srz_add_X_imp(U32, uint32_t, SRZ_VAL_UINT32)
+_srz_add_X_imp(U64, uint64_t, SRZ_VAL_UINT64)
+_srz_add_X_imp(F,   float,    SRZ_VAL_FLOAT)
+_srz_add_X_imp(D,   double,   SRZ_VAL_DOUBLE)
+_srz_add_X_imp(S,   char*,    SRZ_VAL_STR)
+
+
+int srz_add_P(char* sopt, char* lopt, char* desc, char*** dest)
+{
+    _srz_init();
+
+    if(_srz_add_check()){
+        ___srz___.errno = SRZ_ERR_SOPTS_MAX_TOO_SMALL;
+        return -1 ;
+    }
+
+    srz_opt_t* opt = ___srz___.opts + ___srz___.opt_idx;
+    opt->ident          = ___srz___.opt_idx;
+    opt->fin            = 0;
+    opt->srt            = sopt;
+    opt->lng            = lopt;
+    opt->desc           = desc;
+    opt->atype          = SRZ_ARG_POS;
+    opt->val.type       = SRZ_VAL_STR;
+    opt->val.dest       = dest;
+    opt->val.is_vector  = 1;
+
+    ___srz___.opt_idx++;
+    opt = ___srz___.opts + ___srz___.opt_idx;
+    opt->fin = 1;
+
+    return 0;
+}
+
+
+int srz_add_e(char* sopt, char* lopt, char* desc, int* dest, int init, srz_enum_t* map)
+{
+    _srz_init();
+
+    if(_srz_add_check()){
+        ___srz___.errno = SRZ_ERR_SOPTS_MAX_TOO_SMALL;
+        return -1 ;
+    }
+
+    srz_opt_t* opt = ___srz___.opts + ___srz___.opt_idx;
+    opt->ident          = ___srz___.opt_idx;
+    opt->fin            = 0;
+    opt->srt            = sopt;
+    opt->lng            = lopt;
+    opt->desc           = desc;
+    opt->atype          = SRZ_ARG_REQ;
+    opt->val.type       = SRZ_VAL_ENUM;
+    opt->val.dest       = dest;
+    opt->val.enm_map    = map;
+    opt->val.init.i     = init;
+    opt->val.is_vector  = 0;
+
+    ___srz___.opt_idx++;
+    opt = ___srz___.opts + ___srz___.opt_idx;
+    opt->fin = 1;
+
+    return 0;
+}
+
+int srz_add_E(char* sopt, char* lopt, char* desc, int** dest, srz_enum_t* map)
+{
+    _srz_init();
+
+    if(_srz_add_check()){
+        ___srz___.errno = SRZ_ERR_SOPTS_MAX_TOO_SMALL;
+        return -1 ;
+    }
+
+    srz_opt_t* opt = ___srz___.opts + ___srz___.opt_idx;
+    opt->ident          = ___srz___.opt_idx;
+    opt->srt            = sopt;
+    opt->lng            = lopt;
+    opt->desc           = desc;
+    opt->atype          = SRZ_ARG_REQ;
+    opt->val.type       = SRZ_VAL_ENUM;
+    opt->val.dest       = dest;
+    opt->val.enm_map    = map;
+    opt->val.is_vector  = 1;
+
+    ___srz___.opt_idx++;
+    opt = ___srz___.opts + ___srz___.opt_idx;
+    opt->fin = 1;
+
+    return 0;
+}
+
+static inline char* _srz_opt_type2str(srz_opt_type_t opt_type)
+{
+    switch(opt_type){
+        case SRZ_OPT_NONE:
+            return "none";
+        case SRZ_OPT_SHORT:
+            return "short";
+        case SRZ_OPT_POS:
+            return "positional";
+        case SRZ_OPT_ARG_MISSING_NONE:
+            return "arg missing - none";
+        case SRZ_OPT_ARG_MISSING_SHORT:
+            return "arg missing - short";
+        case SRZ_OPT_ARG_MISSING_LONG:
+            return "missing - long";
+        case SRZ_OPT_UNKOWN_NONE:
+            return "unknown - none";
+        case SRZ_OPT_UNKOWN_SHORT:
+            return "unknown - short";
+        case SRZ_OPT_UNKOWN_LONG:
+            return "unknown - long";
+        default:
+            return NULL;
+    }
+}
+
+static int _srz_opt_handler(srz_opt_type_t opt_type, const srz_opt_t* const opt, const char* const optval, void* user)
+{
+    (void)user;
+
+    printf("got option of type %s\n", _srz_opt_type2str(opt_type));
+    char* opt_name = NULL;
+    switch(opt_type){
+        case SRZ_OPT_SHORT:
+        case SRZ_OPT_ARG_MISSING_SHORT:
+        case SRZ_OPT_UNKOWN_SHORT:
+            opt_name = opt->srt;
+            break;
+        case SRZ_OPT_LONG:
+        case SRZ_OPT_ARG_MISSING_LONG:
+        case SRZ_OPT_UNKOWN_LONG:
+            opt_name = opt->lng;
+            break;
+        case SRZ_OPT_NONE:
+        case SRZ_OPT_ARG_MISSING_NONE:
+        case SRZ_OPT_UNKOWN_NONE:
+            opt_name = "[unkown]";
+            break;
+        case SRZ_OPT_POS:
+            opt_name = "";
+
+    }
+
+    if(opt){
+        switch(opt->atype){
+            case SRZ_ARG_REQ:
+                printf("Option %s with required arg: %s\n", opt_name, optval);
+                break;
+            case SRZ_ARG_NON:
+                printf("Option %s with no arg\n", opt_name);
+                break;
+            case SRZ_ARG_OPT:
+                printf("Option %s with optional arg: %s", opt_name, optval ? optval : "(none)");
+                break;
+            case SRZ_ARG_POS:
+                printf("Positional options %s %s\n", opt_name, optval);
+                break;
+        }
+    }
+
+    return 0;
+}
+
+
+int srz_parse(int argc, char** argv)
+{
+    if(!___srz___.init_complete){
+        ___srz___.errno = SRZ_ERR_NO_OPTS_ADDED;
+        return -1;
+    }
+
+    ___srz___.errno = srz_parse_ex(argc,argv,___srz___.opts,_srz_opt_handler,NULL);
+    if(___srz___.errno != SRZ_ERR_NONE){
+        return -1;
+    }
+
+    return 0;
+}
+
+
 #endif /* SRZ_HONLY */
-
-
 #endif /* SSRZH_ */
